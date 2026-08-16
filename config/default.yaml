@@ -1,0 +1,55 @@
+symbols: [BTC/USD, ETH/USD]
+benchmark: BTC/USD
+max_new_positions_per_cycle: 1
+timeframe: 1Day
+lookback_bars: 400
+minimum_history_bars: 220
+liquidity:
+  minimum_dollar_volume: 1000000
+indicators:
+  ema_fast: 20
+  ema_slow: 50
+  ema_long: 200
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  adx_period: 14
+  adx_threshold: 22
+  bollinger_period: 20
+  bollinger_std: 2.0
+  bandwidth_lookback: 60
+  atr_period: 14
+  volume_period: 20
+  relative_strength_period: 20
+score:
+  entry_threshold: 65
+  weights:
+    ema_trend: 18
+    macd_momentum: 20
+    macd_acceleration: 14
+    adx_strength: 12
+    bollinger_breakout: 15
+    bollinger_volatility_shift: 8
+    volume_confirmation: 7
+    relative_strength: 6
+regime:
+  strong_uptrend_score: 75
+  uptrend_score: 55
+  downtrend_score: 35
+  crash_drawdown: 0.20
+  crash_realized_volatility: 1.20
+  sideways_entry_multiplier: 1.20
+  downtrend_entry_multiplier: 1.50
+risk:
+  risk_per_trade: 0.005
+  atr_stop_multiplier: 2.5
+  emergency_stop_percent: 0.15
+  max_position_percent: 0.30
+  max_crypto_exposure: 0.60
+  max_daily_loss: 0.03
+  max_drawdown: 0.15
+  suspension_hours: 24
+backtest:
+  initial_cash: 100000
+  fee_bps: 15
+  slippage_bps: 10
