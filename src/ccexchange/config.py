@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,10 +93,13 @@ class StrategyConfig(BaseModel):
 
 
 class RuntimeSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
-    paper_trading: bool = True
+    paper_trading: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("PAPER_TRADING", "ALPACA_PAPER"),
+    )
     live_trading: bool = False
     dry_run: bool = True
     live_trading_acknowledgement: str = ""

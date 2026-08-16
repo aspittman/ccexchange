@@ -22,6 +22,10 @@ LIVE_TRADING=false
 DRY_RUN=true
 ```
 
+`ALPACA_PAPER=true` is accepted as an alias for `PAPER_TRADING=true`. Paper endpoint selection and
+order authorization are intentionally separate: the paper flag chooses Alpaca's paper account,
+while dry-run prevents submission until `--paper-orders` is supplied.
+
 Dry-run computes orders without submitting them. Paper submission requires `DRY_RUN=false` while leaving paper enabled. Live submission is rejected unless paper and dry-run are both false, `LIVE_TRADING=true`, and `LIVE_TRADING_ACKNOWLEDGEMENT=I_UNDERSTAND_LIVE_CRYPTO_ORDERS` is supplied exactly. Credentials only come from environment variables. Start with a dedicated Alpaca paper account and never reuse live credentials during research.
 
 ## Install and verify
