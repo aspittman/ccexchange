@@ -1,6 +1,9 @@
-import pytest
+from pathlib import Path
 
-from ccexchange.config import RuntimeSettings
+import pytest
+from pydantic import ValidationError
+
+from ccexchange.config import RuntimeSettings, load_config
 
 
 def test_defaults_are_paper_and_dry_run(monkeypatch):
@@ -32,3 +35,12 @@ def test_alpaca_paper_environment_alias(monkeypatch):
     monkeypatch.setenv("ALPACA_PAPER", "false")
     settings = RuntimeSettings(_env_file=None)
     assert settings.paper_trading is False
+
+
+def test_strategy_config_rejects_stock_ticker(tmp_path):
+    source = Path("config/default.yaml").read_text(encoding="utf-8")
+    path = tmp_path / "stock-universe.yaml"
+    path.write_text(source.replace("[BTC/USD, ETH/USD]", "[BTC/USD, SPY]"), encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="BASE/USD"):
+        load_config(path)

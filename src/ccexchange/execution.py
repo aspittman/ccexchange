@@ -62,6 +62,7 @@ class DryRunBroker(Broker):
         return AccountSnapshot(self.equity, self.equity, {})
 
     def submit(self, order: OrderIntent):
+        _require_crypto_pair(order.symbol)
         self.orders.append(order)
         return {"id": f"dry-run-{len(self.orders)}", "status": "dry_run"}
 
@@ -81,6 +82,10 @@ class AlpacaBroker(Broker):
         account = self.client.get_account()
         positions = {}
         for item in self.client.get_all_positions():
+            # This bot shares an Alpaca account with unrelated stock/ETF bots. Keep
+            # those holdings outside its reconciliation and position-management view.
+            if _asset_class_value(getattr(item, "asset_class", None)) != "crypto":
+                continue
             normalized = _display_symbol(str(item.symbol))
             positions[normalized] = BrokerPosition(
                 normalized,
@@ -95,6 +100,12 @@ class AlpacaBroker(Broker):
         from alpaca.trading.enums import OrderSide, TimeInForce
         from alpaca.trading.requests import MarketOrderRequest
 
+        _require_crypto_pair(order.symbol)
+        asset = self.client.get_asset(order.symbol)
+        if _asset_class_value(getattr(asset, "asset_class", None)) != "crypto":
+            raise ValueError(f"refusing non-crypto order for {order.symbol}")
+        if not bool(getattr(asset, "tradable", False)):
+            raise ValueError(f"refusing order for non-tradable crypto asset {order.symbol}")
         request = MarketOrderRequest(
             symbol=order.symbol,
             qty=round(order.quantity, 8),
@@ -136,6 +147,18 @@ def _display_symbol(symbol: str) -> str:
     if symbol.endswith("USD"):
         return f"{symbol[:-3]}/USD"
     return symbol
+
+
+def _asset_class_value(asset_class: Any) -> str:
+    """Return an Alpaca enum/string asset class in a stable lowercase form."""
+    return str(getattr(asset_class, "value", asset_class) or "").lower()
+
+
+def _require_crypto_pair(symbol: str) -> None:
+    """Fail closed before any broker can receive an equity-style symbol."""
+    parts = symbol.upper().split("/")
+    if len(parts) != 2 or not parts[0] or parts[1] != "USD":
+        raise ValueError(f"refusing non-crypto symbol {symbol}; expected BASE/USD")
 
 
 def order_id(result: Any) -> str:

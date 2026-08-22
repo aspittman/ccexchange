@@ -87,6 +87,15 @@ class StrategyConfig(BaseModel):
             raise ValueError("benchmark must be included in symbols")
         if len(set(self.symbols)) != len(self.symbols):
             raise ValueError("universe symbols must be unique")
+        invalid = [
+            symbol
+            for symbol in self.symbols
+            if len(symbol.split("/")) != 2
+            or not symbol.split("/")[0]
+            or symbol.split("/")[1] != "USD"
+        ]
+        if invalid:
+            raise ValueError(f"crypto universe symbols must use BASE/USD format: {invalid}")
         if self.max_new_positions_per_cycle < 1:
             raise ValueError("max_new_positions_per_cycle must be positive")
         return self
