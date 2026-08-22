@@ -17,6 +17,8 @@ class ManagedPosition:
     entry_score: float = 0.0
     regime: str = ""
     components: dict[str, float] = field(default_factory=dict)
+    experiment_id: str = ""
+    timeframe: str = ""
 
 
 @dataclass

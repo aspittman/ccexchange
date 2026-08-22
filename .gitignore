@@ -10,3 +10,13 @@ logs/*.jsonl
 results/
 data/
 state/*.json
+paper_data/
+/logs
+.env.*
+  !.env.example
+
+  build/
+  .coverage
+  coverage.xml
+  htmlcov/
+  .mypy_cache/

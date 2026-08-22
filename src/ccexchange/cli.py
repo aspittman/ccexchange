@@ -6,14 +6,16 @@ import pandas as pd
 
 from .backtest import Backtester, result_dict
 from .config import RuntimeSettings, load_config
+from .paper import PaperRecorder
 
 
 def main():
     parser = argparse.ArgumentParser(prog="ccexchange")
-    parser.add_argument("command", choices=["safety-check", "backtest"])
+    parser.add_argument("command", choices=["safety-check", "backtest", "paper-report"])
     parser.add_argument("--config", default=None)
     parser.add_argument("--data", default="data")
     parser.add_argument("--output", default="results/backtest.json")
+    parser.add_argument("--paper-data", default="paper_data")
     args = parser.parse_args()
     runtime = RuntimeSettings()
     runtime.assert_execution_safe()
@@ -28,6 +30,9 @@ def main():
                 }
             )
         )
+        return
+    if args.command == "paper-report":
+        print(json.dumps(PaperRecorder(args.paper_data).report(), indent=2))
         return
     cfg = load_config(args.config or runtime.config_path)
     raw = {}

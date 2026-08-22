@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from .config import RuntimeSettings
 
@@ -31,12 +32,25 @@ class AccountSnapshot:
     positions: dict[str, BrokerPosition]
 
 
+@dataclass(frozen=True)
+class FilledOrder:
+    order_id: str
+    symbol: str
+    side: str
+    quantity: float
+    price: float
+    filled_at: str
+
+
 class Broker(ABC):
     @abstractmethod
     def account(self) -> AccountSnapshot: ...
 
     @abstractmethod
     def submit(self, order: OrderIntent) -> Any: ...
+
+    def filled_orders(self, symbols: list[str] | None = None) -> list[FilledOrder]:
+        return []
 
 
 class DryRunBroker(Broker):
@@ -86,8 +100,34 @@ class AlpacaBroker(Broker):
             qty=round(order.quantity, 8),
             side=OrderSide.BUY if order.side == "buy" else OrderSide.SELL,
             time_in_force=TimeInForce.GTC,
+            client_order_id=f"ccexchange-{uuid4().hex}",
         )
         return self.client.submit_order(order_data=request)
+
+    def filled_orders(self, symbols: list[str] | None = None) -> list[FilledOrder]:
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        orders = self.client.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=500, symbols=symbols)
+        )
+        fills = []
+        for item in orders:
+            if not str(item.client_order_id).startswith("ccexchange-"):
+                continue
+            if not item.filled_at or not item.filled_qty or not item.filled_avg_price:
+                continue
+            fills.append(
+                FilledOrder(
+                    str(item.id),
+                    _display_symbol(str(item.symbol)),
+                    str(item.side.value),
+                    float(item.filled_qty),
+                    float(item.filled_avg_price),
+                    item.filled_at.isoformat(),
+                )
+            )
+        return fills
 
 
 def _display_symbol(symbol: str) -> str:

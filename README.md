@@ -75,6 +75,32 @@ high-watermark, pending-order, and circuit-breaker state under `state/`, and sup
 orders. Existing positions continue to receive exit management while new entries are suspended.
 ATR stops are managed by the bot process, so they depend on this process and Alpaca being available.
 
+During `--paper-orders` operation, the bot also maintains a paper-research dataset under
+`paper_data/`: deduplicated completed OHLCV bars, account-equity snapshots, reconciled Alpaca fills,
+round trips, and `paper_report.json`. Refresh or print the report at any time with:
+
+```bash
+ccexchange paper-report
+```
+
+The report includes total return, drawdown, volatility, Sharpe ratio, fill and round-trip counts,
+win rate, average winner/loser, and profit factor. Historical backtests remain separate so paper
+results are never confused with simulated results.
+
+Every paper configuration receives a stable experiment ID and a complete JSON snapshot under
+`paper_data/experiments/`. `decisions.csv` retains eligible and rejected signals with raw indicator
+values and score components; `orders.csv` links those conditions to bot-tagged Alpaca fills.
+`technique_analysis.json` and `.csv` summarize outcomes by symbol, regime, timeframe, score band,
+configuration, indicator confirmation, and exit reason. Groups with fewer than 20 completed trades
+are marked as insufficient samples. These comparisons are descriptive rather than causal; validate
+parameter changes with walk-forward testing.
+
+Collected bars are directly reusable by the historical engine. For the default daily timeframe:
+
+```bash
+ccexchange backtest --data paper_data/bars/1Day --output results/paper-period-replay.json
+```
+
 Launcher activity is written to `logs/launcher.log`; strategy, regime, score, and calculated-order events are written to `logs/events.jsonl`. The entire project already lives in this base directory—there is no second nested project folder. The `src/ccexchange` directory is only the importable Python package.
 
 ## Strategy

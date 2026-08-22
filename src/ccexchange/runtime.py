@@ -14,6 +14,7 @@ from .config import RuntimeSettings, StrategyConfig, load_config
 from .data import AlpacaCryptoData, completed_only
 from .execution import Broker, OrderIntent, make_broker, order_id
 from .indicators import add_indicators
+from .paper import PaperRecorder
 from .regime import MarketRegime, classify_regime, required_entry_score
 from .relative_strength import relative_strength
 from .risk import ratchet_stop, size_position
@@ -142,6 +143,21 @@ def run_cycle(
     state = store.load()
     broker = broker or make_broker(settings, cfg.backtest.initial_cash)
     account = broker.account()
+    recorder = None
+    experiment_id = ""
+    if settings.paper_trading and not settings.dry_run:
+        recorder = PaperRecorder()
+        experiment_id = recorder.register_experiment(cfg.model_dump(mode="json"))
+        recorder.record_bars(
+            {
+                symbol: frame[["open", "high", "low", "close", "volume"]]
+                for symbol, frame in frames.items()
+            },
+            cfg.timeframe,
+        )
+        recorder.record_snapshot(now, account)
+        recorder.record_fills(broker.filled_orders(cfg.symbols))
+        recorder.report()
     _reconcile(state, account, rows, cfg, audit, now, candle)
     btc = rows[cfg.benchmark]
     regime, regime_points = classify_regime(btc, cfg)
@@ -179,6 +195,19 @@ def run_cycle(
                 current=current_price,
             )
             state.pending_orders[symbol] = "sell"
+            if recorder:
+                recorder.record_order(
+                    {
+                        "order_id": order_id(result),
+                        "timestamp": now.isoformat(),
+                        "symbol": symbol,
+                        "side": "sell",
+                        "reason": reason,
+                        "experiment_id": managed.experiment_id,
+                        "timeframe": managed.timeframe,
+                        "regime": regime.value,
+                    }
+                )
         else:
             audit.write(
                 "POSITION_MANAGED",
@@ -241,6 +270,29 @@ def run_cycle(
             "liquidity_eligible": liquid,
         }
         audit.write("SIGNAL", **details)
+        if recorder:
+            score_band = f"{int(scored.total // 10) * 10}-{int(scored.total // 10) * 10 + 9}"
+            recorder.record_decision(
+                {
+                    "experiment_id": experiment_id,
+                    "timestamp": now.isoformat(),
+                    "candle": candle,
+                    "symbol": symbol,
+                    "timeframe": cfg.timeframe,
+                    "regime": regime.value,
+                    "score": scored.total,
+                    "score_band": score_band,
+                    "threshold": threshold,
+                    "liquidity_eligible": liquid,
+                    "eligible": eligible,
+                    "dollar_volume": float(row.dollar_volume),
+                    "adx": float(row.adx),
+                    "atr": float(row.atr),
+                    "volume_ratio": float(row.volume_ratio),
+                    "relative_strength": relative,
+                    **{f"component_{key}": value for key, value in scored.components.items()},
+                }
+            )
         candidates.append(
             RankedCandidate(
                 symbol,
@@ -289,6 +341,7 @@ def run_cycle(
             continue
         intent = OrderIntent(symbol, "buy", plan.quantity, "; ".join(scored.reasons))
         result = broker.submit(intent)
+        submitted_order_id = order_id(result)
         audit.write(
             "BUY_SUBMITTED",
             **details,
@@ -298,7 +351,7 @@ def run_cycle(
             quantity=plan.quantity,
             notional=plan.notional,
             planned_risk=plan.risk_dollars,
-            order_id=order_id(result),
+            order_id=submitted_order_id,
             mode="dry_run" if settings.dry_run else "paper" if settings.paper_trading else "live",
         )
         if not settings.dry_run:
@@ -312,8 +365,27 @@ def run_cycle(
                 scored.total,
                 regime.value,
                 scored.components,
+                experiment_id,
+                cfg.timeframe,
             )
             state.pending_orders[symbol] = "buy"
+            if recorder:
+                recorder.record_order(
+                    {
+                        "order_id": submitted_order_id,
+                        "timestamp": now.isoformat(),
+                        "candle": candle,
+                        "symbol": symbol,
+                        "side": "buy",
+                        "reason": "; ".join(scored.reasons),
+                        "experiment_id": experiment_id,
+                        "timeframe": cfg.timeframe,
+                        "regime": regime.value,
+                        "score": scored.total,
+                        "score_band": f"{int(scored.total // 10) * 10}-{int(scored.total // 10) * 10 + 9}",
+                        **{f"component_{key}": value for key, value in scored.components.items()},
+                    }
+                )
         available -= plan.notional
         new_positions += 1
     store.save(state)

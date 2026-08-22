@@ -16,6 +16,12 @@ LOG_PATH = PROJECT_ROOT / "logs" / "launcher.log"
 LOGGER = logging.getLogger("ccexchange.launcher")
 
 
+def project_python() -> Path:
+    """Prefer the project's dependency-complete virtual environment."""
+    candidate = PROJECT_ROOT / ".venv" / "bin" / "python"
+    return candidate if candidate.is_file() else Path(sys.executable)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Keep the ccexchange bot running")
     parser.add_argument("--once", action="store_true", help="Run one bot cycle and exit")
@@ -51,7 +57,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     delay = max(0.0, args.restart_delay)
     while not stopping:
-        command = [sys.executable, str(PROJECT_ROOT / "main.py")]
+        command = [str(project_python()), str(PROJECT_ROOT / "main.py")]
         if args.once:
             command.append("--once")
         if args.paper_orders:
