@@ -12,7 +12,7 @@ import pandas as pd
 from .audit import AuditLog
 from .config import RuntimeSettings, StrategyConfig, load_config
 from .data import AlpacaCryptoData, completed_only
-from .execution import Broker, OrderIntent, make_broker, order_id
+from .execution import Broker, FilledOrder, OrderIntent, make_broker, order_id
 from .indicators import add_indicators
 from .paper import PaperRecorder
 from .regime import MarketRegime, classify_regime, required_entry_score
@@ -25,6 +25,40 @@ from .universe import RankedCandidate, rank_candidates
 INTERVAL_SECONDS = {"1Day": 3600, "12Hour": 900, "4Hour": 300, "1Hour": 60}
 PERIODS_PER_YEAR = {"1Day": 365, "12Hour": 730, "4Hour": 2190, "1Hour": 8760}
 LOGGER = logging.getLogger("ccexchange.runtime")
+
+
+def _bot_performance(
+    fills: list[FilledOrder], current_prices: dict[str, float], starting_equity: float
+) -> tuple[int, float, float]:
+    """Calculate P&L using only fills attributed to this bot."""
+    quantities: dict[str, float] = {}
+    costs: dict[str, float] = {}
+    realized_pnl = 0.0
+    for fill in sorted(fills, key=lambda item: item.filled_at):
+        quantity = quantities.get(fill.symbol, 0.0)
+        cost = costs.get(fill.symbol, 0.0)
+        if fill.side.lower() == "buy":
+            quantities[fill.symbol] = quantity + fill.quantity
+            costs[fill.symbol] = cost + fill.quantity * fill.price
+            continue
+        sold = min(fill.quantity, quantity)
+        average_cost = cost / quantity if quantity > 0 else 0.0
+        realized_pnl += sold * (fill.price - average_cost)
+        remaining = max(0.0, quantity - sold)
+        quantities[fill.symbol] = remaining
+        costs[fill.symbol] = average_cost * remaining
+
+    unrealized_pnl = sum(
+        quantity * current_prices.get(symbol, costs[symbol] / quantity) - costs[symbol]
+        for symbol, quantity in quantities.items()
+        if quantity > 1e-12
+    )
+    total_pnl = realized_pnl + unrealized_pnl
+    return (
+        sum(quantity > 1e-12 for quantity in quantities.values()),
+        total_pnl,
+        (total_pnl / starting_equity * 100) if starting_equity > 0 else 0.0,
+    )
 
 
 def _iso(value) -> str:
@@ -145,6 +179,7 @@ def run_cycle(
     account = broker.account()
     recorder = None
     experiment_id = ""
+    bot_fills = broker.filled_orders(cfg.symbols) if not settings.dry_run else []
     if settings.paper_trading and not settings.dry_run:
         recorder = PaperRecorder()
         experiment_id = recorder.register_experiment(cfg.model_dump(mode="json"))
@@ -156,9 +191,21 @@ def run_cycle(
             cfg.timeframe,
         )
         recorder.record_snapshot(now, account)
-        recorder.record_fills(broker.filled_orders(cfg.symbols))
+        recorder.record_fills(bot_fills)
         recorder.report()
     _reconcile(state, account, rows, cfg, audit, now, candle)
+    bot_positions, bot_pnl, bot_return_percent = _bot_performance(
+        bot_fills,
+        {symbol: position.current_price for symbol, position in account.positions.items()},
+        cfg.backtest.initial_cash,
+    )
+    audit.write(
+        "PORTFOLIO_STATUS",
+        bot_positions_held=bot_positions,
+        bot_pnl=bot_pnl,
+        bot_return_percent=bot_return_percent,
+        basis="ccexchange-tagged fills versus configured initial cash",
+    )
     btc = rows[cfg.benchmark]
     regime, regime_points = classify_regime(btc, cfg)
     audit.write("REGIME", regime=regime.value, score=regime_points, candle=candle)

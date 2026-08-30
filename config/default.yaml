@@ -5,7 +5,7 @@ timeframe: 1Day
 lookback_bars: 400
 minimum_history_bars: 220
 liquidity:
-  minimum_dollar_volume: 1000000
+  minimum_dollar_volume: 100000
 indicators:
   ema_fast: 20
   ema_slow: 50

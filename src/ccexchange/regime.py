@@ -15,7 +15,16 @@ class MarketRegime(str, Enum):
 
 def classify_regime(btc: pd.Series, cfg: StrategyConfig) -> tuple[MarketRegime, float]:
     r = cfg.regime
-    if btc.drawdown <= -r.crash_drawdown or btc.realized_volatility >= r.crash_realized_volatility:
+    # A large drawdown from an old high should not permanently lock a recovering
+    # market out. Treat drawdown as a crash only while short-term price and MACD
+    # momentum are both still deteriorating. Extreme realized volatility remains
+    # an unconditional safety block.
+    drawdown_crash = (
+        btc.drawdown <= -r.crash_drawdown
+        and btc.close < btc.ema_fast
+        and btc.macd < btc.macd_signal
+    )
+    if drawdown_crash or btc.realized_volatility >= r.crash_realized_volatility:
         return MarketRegime.HIGH_RISK, 0
     points = 0.0
     points += 25 if btc.close > btc.ema_long else 0

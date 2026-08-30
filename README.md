@@ -74,6 +74,9 @@ This flag cannot enable live trading. The process reconciles broker positions, p
 high-watermark, pending-order, and circuit-breaker state under `state/`, and suppresses duplicate
 orders. Existing positions continue to receive exit management while new entries are suspended.
 ATR stops are managed by the bot process, so they depend on this process and Alpaca being available.
+Each successful cycle prints a `PORTFOLIO_STATUS` event with positions, profit/loss, and percentage
+return reconstructed only from Alpaca fills tagged by this bot. Unrelated activity in the shared
+account is excluded.
 
 During `--paper-orders` operation, the bot also maintains a paper-research dataset under
 `paper_data/`: deduplicated completed OHLCV bars, account-equity snapshots, reconciled Alpaca fills,

@@ -36,8 +36,8 @@ def test_crash_regime_blocks_first():
             "drawdown": -0.25,
             "realized_volatility": 0.5,
             "close": 90,
+            "ema_fast": 95,
             "ema_long": 100,
-            "ema_fast": 90,
             "ema_slow": 95,
             "macd": -1,
             "macd_signal": 0,
@@ -46,3 +46,23 @@ def test_crash_regime_blocks_first():
         }
     )
     assert classify_regime(row, cfg)[0] == MarketRegime.HIGH_RISK
+
+
+def test_large_drawdown_does_not_block_recovery_momentum():
+    cfg = load_config("config/default.yaml")
+    row = pd.Series(
+        {
+            "drawdown": -0.30,
+            "realized_volatility": 0.5,
+            "close": 95,
+            "ema_fast": 90,
+            "ema_slow": 92,
+            "ema_long": 100,
+            "macd": 2,
+            "macd_signal": 1,
+            "adx": 25,
+            "macd_acceleration": 0.5,
+        }
+    )
+    regime, _ = classify_regime(row, cfg)
+    assert regime != MarketRegime.HIGH_RISK
