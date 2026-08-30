@@ -40,7 +40,8 @@ ccexchange safety-check
 pytest
 ```
 
-Add your Alpaca paper credentials to the two blank fields in `.env`. Trading remains paper-first and dry-run because those are application defaults.
+Add your Alpaca paper credentials to the two blank fields in `.env`. Direct `main.py` execution
+remains dry-run by default; the launcher explicitly enables paper-account order submission.
 
 ## Run the bot
 
@@ -50,27 +51,23 @@ Run one signal-calculation cycle without submitting orders:
 python main.py --once
 ```
 
-Run continuously in the foreground:
+Run continuously under the supervisor and submit to the configured Alpaca paper account:
 
 ```bash
-python main.py
+python3 launcher.py
 ```
 
-Use the supervisor for unattended operation. It restarts `main.py` after an unexpected non-zero exit and forwards Ctrl-C/termination cleanly:
+The supervisor restarts `main.py` after an unexpected non-zero exit and forwards
+Ctrl-C/termination cleanly.
+
+To calculate and log signals without submitting any orders, use:
 
 ```bash
-python launcher.py
+python3 launcher.py --dry-run
 ```
 
-After reviewing dry-run logs, explicitly enable Alpaca paper order submission with:
-
-```bash
-python3 main.py --paper-orders
-# or supervised
-python3 launcher.py --paper-orders
-```
-
-This flag cannot enable live trading. The process reconciles broker positions, persists stop,
+The launcher cannot enable live trading. Live mode still requires the separate environment safety
+gates and exact acknowledgement phrase. The process reconciles broker positions, persists stop,
 high-watermark, pending-order, and circuit-breaker state under `state/`, and suppresses duplicate
 orders. Existing positions continue to receive exit management while new entries are suspended.
 ATR stops are managed by the bot process, so they depend on this process and Alpaca being available.
@@ -81,7 +78,7 @@ Each successful cycle prints a `PORTFOLIO_STATUS` event with positions, profit/l
 return reconstructed only from Alpaca fills tagged by this bot. Unrelated activity in the shared
 account is excluded.
 
-During `--paper-orders` operation, the bot also maintains a paper-research dataset under
+During normal launcher paper operation, the bot also maintains a paper-research dataset under
 `paper_data/`: deduplicated completed OHLCV bars, account-equity snapshots, reconciled Alpaca fills,
 round trips, and `paper_report.json`. Refresh or print the report at any time with:
 

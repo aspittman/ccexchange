@@ -22,17 +22,33 @@ def project_python() -> Path:
     return candidate if candidate.is_file() else Path(sys.executable)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Keep the ccexchange bot running")
     parser.add_argument("--once", action="store_true", help="Run one bot cycle and exit")
     parser.add_argument(
         "--paper-orders",
         action="store_true",
-        help="Forward explicit Alpaca paper-order authorization to main.py",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Calculate and log signals without submitting paper orders",
     )
     parser.add_argument("--restart-delay", type=float, default=5.0)
     parser.add_argument("--max-restart-delay", type=float, default=300.0)
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def bot_command(args: argparse.Namespace) -> list[str]:
+    command = [str(project_python()), str(PROJECT_ROOT / "main.py")]
+    if args.once:
+        command.append("--once")
+    # Paper submission is the supervisor's normal mode. The old flag remains
+    # accepted for compatibility with existing service definitions and scripts.
+    if not args.dry_run:
+        command.append("--paper-orders")
+    return command
 
 
 def main() -> int:
@@ -57,11 +73,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     delay = max(0.0, args.restart_delay)
     while not stopping:
-        command = [str(project_python()), str(PROJECT_ROOT / "main.py")]
-        if args.once:
-            command.append("--once")
-        if args.paper_orders:
-            command.append("--paper-orders")
+        command = bot_command(args)
         started = time.monotonic()
         LOGGER.info("Starting bot: %s", " ".join(command))
         child = subprocess.Popen(command, cwd=PROJECT_ROOT)
