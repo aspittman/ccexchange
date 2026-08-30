@@ -12,12 +12,19 @@ import pandas as pd
 from .audit import AuditLog
 from .config import RuntimeSettings, StrategyConfig, load_config
 from .data import AlpacaCryptoData, completed_only
-from .execution import Broker, FilledOrder, OrderIntent, make_broker, order_id
+from .execution import (
+    Broker,
+    FilledOrder,
+    OrderIntent,
+    deterministic_client_order_id,
+    make_broker,
+    order_id,
+)
 from .indicators import add_indicators
 from .paper import PaperRecorder
 from .regime import MarketRegime, classify_regime, required_entry_score
 from .relative_strength import relative_strength
-from .risk import ratchet_stop, size_position
+from .risk import correlated_exposure_available, ratchet_stop, size_position
 from .scoring import momentum_score
 from .state import BotState, ManagedPosition, StateStore
 from .universe import RankedCandidate, rank_candidates
@@ -175,11 +182,17 @@ def run_cycle(
     candle = _iso(latest)
     store = store or StateStore()
     state = store.load()
+    if state.last_processed_candle != candle:
+        state.cooldowns = {
+            symbol: bars - 1 for symbol, bars in state.cooldowns.items() if bars - 1 > 0
+        }
     broker = broker or make_broker(settings, cfg.backtest.initial_cash)
     account = broker.account()
+    open_client_order_ids = broker.open_client_order_ids() if not settings.dry_run else set()
     recorder = None
     experiment_id = ""
     bot_fills = broker.filled_orders(cfg.symbols) if not settings.dry_run else []
+    order_updates = broker.order_updates(cfg.symbols) if not settings.dry_run else []
     if settings.paper_trading and not settings.dry_run:
         recorder = PaperRecorder()
         experiment_id = recorder.register_experiment(cfg.model_dump(mode="json"))
@@ -192,6 +205,7 @@ def run_cycle(
         )
         recorder.record_snapshot(now, account)
         recorder.record_fills(bot_fills)
+        recorder.record_order_updates(order_updates)
         recorder.report()
     _reconcile(state, account, rows, cfg, audit, now, candle)
     bot_positions, bot_pnl, bot_return_percent = _bot_performance(
@@ -228,8 +242,19 @@ def run_cycle(
         elif row.macd < row.macd_signal and row.close < row.ema_fast:
             reason = "MACD and EMA momentum deterioration"
         if reason and state.pending_orders.get(symbol) != "sell":
+            client_id = deterministic_client_order_id(candle, symbol, "sell")
+            if client_id in open_client_order_ids:
+                state.pending_orders[symbol] = "sell"
+                audit.write("DUPLICATE_ORDER_SUPPRESSED", symbol=symbol, side="sell", client_order_id=client_id)
+                continue
             result = broker.submit(
-                OrderIntent(symbol, "sell", account.positions[symbol].quantity, reason)
+                OrderIntent(
+                    symbol,
+                    "sell",
+                    account.positions[symbol].quantity,
+                    reason,
+                    client_id,
+                )
             )
             audit.write(
                 "SELL_SUBMITTED",
@@ -242,6 +267,11 @@ def run_cycle(
                 current=current_price,
             )
             state.pending_orders[symbol] = "sell"
+            state.cooldowns[symbol] = (
+                cfg.risk.loss_cooldown_bars
+                if current_price < managed.entry_price
+                else cfg.risk.symbol_cooldown_bars
+            ) + 1
             if recorder:
                 recorder.record_order(
                     {
@@ -250,6 +280,10 @@ def run_cycle(
                         "symbol": symbol,
                         "side": "sell",
                         "reason": reason,
+                        "client_order_id": client_id,
+                        "quantity": account.positions[symbol].quantity,
+                        "signal_price": current_price,
+                        "submitted_at": now.isoformat(),
                         "experiment_id": managed.experiment_id,
                         "timeframe": managed.timeframe,
                         "regime": regime.value,
@@ -282,6 +316,15 @@ def run_cycle(
         return
     current_exposure = sum(p.market_value for s, p in account.positions.items() if s in cfg.symbols)
     available = max(0.0, account.equity * cfg.risk.max_crypto_exposure - current_exposure)
+    held_values = {
+        symbol: position.market_value
+        for symbol, position in account.positions.items()
+        if symbol in cfg.symbols
+    }
+    recent_returns = {
+        symbol: frame.close.pct_change().tail(cfg.risk.correlation_lookback)
+        for symbol, frame in frames.items()
+    }
     candidates = []
     candidate_details = {}
     scored_by_symbol = {}
@@ -379,14 +422,35 @@ def run_cycle(
             or symbol in account.positions
             or symbol in state.positions
             or symbol in state.pending_orders
+            or state.cooldowns.get(symbol, 0) > 0
+            or sum(symbol in cfg.symbols for symbol in account.positions) + sum(
+                side == "buy" and pending not in account.positions
+                for pending, side in state.pending_orders.items()
+            ) + (new_positions if settings.dry_run else 0) >= cfg.risk.max_positions
             or new_positions >= cfg.max_new_positions_per_cycle
         ):
             continue
-        plan = size_position(account.equity, float(row.close), float(row.atr), available, cfg.risk)
+        correlation_available = correlated_exposure_available(
+            symbol, recent_returns, held_values, account.equity, cfg.risk
+        )
+        plan = size_position(
+            account.equity,
+            float(row.close),
+            float(row.atr),
+            min(available, correlation_available),
+            cfg.risk,
+        )
         if plan.quantity <= 0:
             audit.write("ENTRY_BLOCKED", symbol=symbol, reason="no exposure or risk capacity")
             continue
-        intent = OrderIntent(symbol, "buy", plan.quantity, "; ".join(scored.reasons))
+        client_id = deterministic_client_order_id(candle, symbol, "buy")
+        if client_id in open_client_order_ids:
+            state.pending_orders[symbol] = "buy"
+            audit.write("DUPLICATE_ORDER_SUPPRESSED", symbol=symbol, side="buy", client_order_id=client_id)
+            continue
+        intent = OrderIntent(
+            symbol, "buy", plan.quantity, "; ".join(scored.reasons), client_id
+        )
         result = broker.submit(intent)
         submitted_order_id = order_id(result)
         audit.write(
@@ -425,6 +489,10 @@ def run_cycle(
                         "symbol": symbol,
                         "side": "buy",
                         "reason": "; ".join(scored.reasons),
+                        "client_order_id": client_id,
+                        "quantity": plan.quantity,
+                        "signal_price": float(row.close),
+                        "submitted_at": now.isoformat(),
                         "experiment_id": experiment_id,
                         "timeframe": cfg.timeframe,
                         "regime": regime.value,

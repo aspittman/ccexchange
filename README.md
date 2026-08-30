@@ -74,6 +74,9 @@ This flag cannot enable live trading. The process reconciles broker positions, p
 high-watermark, pending-order, and circuit-breaker state under `state/`, and suppresses duplicate
 orders. Existing positions continue to receive exit management while new entries are suspended.
 ATR stops are managed by the bot process, so they depend on this process and Alpaca being available.
+The runtime also enforces a maximum holding count, per-symbol/post-loss cooldowns, and a rolling
+correlated-exposure cap. Stable client order IDs make submission retries idempotent for each candle,
+symbol, and side.
 Each successful cycle prints a `PORTFOLIO_STATUS` event with positions, profit/loss, and percentage
 return reconstructed only from Alpaca fills tagged by this bot. Unrelated activity in the shared
 account is excluded.
@@ -89,6 +92,8 @@ ccexchange paper-report
 The report includes total return, drawdown, volatility, Sharpe ratio, fill and round-trip counts,
 win rate, average winner/loser, and profit factor. Historical backtests remain separate so paper
 results are never confused with simulated results.
+It also reports fill rate, decision-to-fill slippage, fill latency, rejected/canceled orders, and
+partial fills when attributed order data is available.
 
 Every paper configuration receives a stable experiment ID and a complete JSON snapshot under
 `paper_data/experiments/`. `decisions.csv` retains eligible and rejected signals with raw indicator

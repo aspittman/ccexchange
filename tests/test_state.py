@@ -7,9 +7,11 @@ def test_state_round_trip_is_atomic(tmp_path):
         positions={"BTC/USD": ManagedPosition("BTC/USD", 100, 1, 90, 110, "now")},
         last_processed_candle="candle",
         pending_orders={"ETH/USD": "buy"},
+        cooldowns={"BTC/USD": 2},
     )
     store.save(state)
     loaded = store.load()
     assert loaded.positions["BTC/USD"].stop == 90
     assert loaded.last_processed_candle == "candle"
     assert loaded.pending_orders == {"ETH/USD": "buy"}
+    assert loaded.cooldowns == {"BTC/USD": 2}

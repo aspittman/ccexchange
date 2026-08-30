@@ -14,6 +14,7 @@ class OrderIntent:
     side: str
     quantity: float
     reason: str
+    client_order_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,19 @@ class FilledOrder:
     filled_at: str
 
 
+@dataclass(frozen=True)
+class OrderUpdate:
+    order_id: str
+    client_order_id: str
+    symbol: str
+    side: str
+    status: str
+    requested_quantity: float
+    filled_quantity: float
+    submitted_at: str
+    updated_at: str
+
+
 class Broker(ABC):
     @abstractmethod
     def account(self) -> AccountSnapshot: ...
@@ -50,6 +64,12 @@ class Broker(ABC):
     def submit(self, order: OrderIntent) -> Any: ...
 
     def filled_orders(self, symbols: list[str] | None = None) -> list[FilledOrder]:
+        return []
+
+    def open_client_order_ids(self) -> set[str]:
+        return set()
+
+    def order_updates(self, symbols: list[str] | None = None) -> list[OrderUpdate]:
         return []
 
 
@@ -111,7 +131,7 @@ class AlpacaBroker(Broker):
             qty=round(order.quantity, 8),
             side=OrderSide.BUY if order.side == "buy" else OrderSide.SELL,
             time_in_force=TimeInForce.GTC,
-            client_order_id=f"ccexchange-{uuid4().hex}",
+            client_order_id=order.client_order_id or f"ccexchange-{uuid4().hex}",
         )
         return self.client.submit_order(order_data=request)
 
@@ -139,6 +159,58 @@ class AlpacaBroker(Broker):
                 )
             )
         return fills
+
+    def open_client_order_ids(self) -> set[str]:
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        orders = self.client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
+        return {
+            str(item.client_order_id)
+            for item in orders
+            if str(getattr(item, "client_order_id", "")).startswith("ccexchange-")
+        }
+
+    def order_updates(self, symbols: list[str] | None = None) -> list[OrderUpdate]:
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        orders = self.client.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500, symbols=symbols)
+        )
+        updates = []
+        for item in orders:
+            client_id = str(getattr(item, "client_order_id", ""))
+            if not client_id.startswith("ccexchange-"):
+                continue
+            submitted_at = getattr(item, "submitted_at", None) or getattr(item, "created_at", None)
+            updated_at = (
+                getattr(item, "updated_at", None)
+                or getattr(item, "filled_at", None)
+                or submitted_at
+            )
+            updates.append(
+                OrderUpdate(
+                    str(item.id),
+                    client_id,
+                    _display_symbol(str(item.symbol)),
+                    str(item.side.value),
+                    str(item.status.value),
+                    float(item.qty or 0),
+                    float(item.filled_qty or 0),
+                    submitted_at.isoformat() if submitted_at else "",
+                    updated_at.isoformat() if updated_at else "",
+                )
+            )
+        return updates
+
+
+def deterministic_client_order_id(candle: str, symbol: str, side: str) -> str:
+    """Stable idempotency key for one strategy decision."""
+    import hashlib
+
+    key = f"{candle}|{symbol.upper()}|{side.lower()}"
+    return f"ccexchange-{hashlib.sha256(key.encode()).hexdigest()[:32]}"
 
 
 def _display_symbol(symbol: str) -> str:

@@ -55,6 +55,26 @@ class Risk(BaseModel):
     max_daily_loss: float = 0.03
     max_drawdown: float = 0.15
     suspension_hours: int = 24
+    max_positions: int = 2
+    symbol_cooldown_bars: int = 1
+    loss_cooldown_bars: int = 3
+    correlation_lookback: int = 60
+    max_pairwise_correlation: float = 0.80
+    max_correlated_exposure: float = 0.35
+
+    @model_validator(mode="after")
+    def valid_limits(self):
+        if self.max_positions < 1:
+            raise ValueError("max_positions must be positive")
+        if min(self.symbol_cooldown_bars, self.loss_cooldown_bars) < 0:
+            raise ValueError("cooldown bars cannot be negative")
+        if self.correlation_lookback < 2:
+            raise ValueError("correlation_lookback must be at least 2")
+        if not 0 <= self.max_pairwise_correlation <= 1:
+            raise ValueError("max_pairwise_correlation must be between 0 and 1")
+        if not 0 < self.max_correlated_exposure <= 1:
+            raise ValueError("max_correlated_exposure must be in (0, 1]")
+        return self
 
 
 class Backtest(BaseModel):

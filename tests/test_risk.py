@@ -1,5 +1,7 @@
+import pandas as pd
+
 from ccexchange.config import Risk
-from ccexchange.risk import ratchet_stop, size_position
+from ccexchange.risk import correlated_exposure_available, ratchet_stop, size_position
 
 
 def test_position_is_risk_and_exposure_capped():
@@ -14,3 +16,15 @@ def test_stop_never_moves_backwards_when_atr_expands():
     cfg = Risk(atr_stop_multiplier=2)
     assert ratchet_stop(95, 110, 20, cfg) == 95
     assert ratchet_stop(95, 110, 5, cfg) == 100
+
+
+def test_correlated_holdings_consume_group_capacity():
+    cfg = Risk(max_correlated_exposure=0.30, max_pairwise_correlation=0.8)
+    returns = {
+        "BTC/USD": pd.Series([0.01, 0.02, -0.01]),
+        "ETH/USD": pd.Series([0.02, 0.04, -0.02]),
+    }
+    available = correlated_exposure_available(
+        "ETH/USD", returns, {"BTC/USD": 20_000}, 100_000, cfg
+    )
+    assert available == 10_000

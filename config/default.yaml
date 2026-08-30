@@ -49,6 +49,12 @@ risk:
   max_daily_loss: 0.03
   max_drawdown: 0.15
   suspension_hours: 24
+  max_positions: 2
+  symbol_cooldown_bars: 1
+  loss_cooldown_bars: 3
+  correlation_lookback: 60
+  max_pairwise_correlation: 0.80
+  max_correlated_exposure: 0.35
 backtest:
   initial_cash: 100000
   fee_bps: 15

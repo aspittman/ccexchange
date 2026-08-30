@@ -11,7 +11,7 @@ from .indicators import add_indicators
 from .portfolio import Portfolio, Position
 from .regime import MarketRegime, classify_regime, required_entry_score
 from .relative_strength import relative_strength
-from .risk import CircuitBreaker, ratchet_stop, size_position
+from .risk import CircuitBreaker, correlated_exposure_available, ratchet_stop, size_position
 from .scoring import momentum_score
 from .universe import RankedCandidate, rank_candidates
 
@@ -114,8 +114,10 @@ class Backtester:
         events: list[dict] = []
         curve = {}
         invested_count = 0
+        cooldowns: dict[str, int] = {}
         initial = portfolio.cash
         for n, ts in enumerate(index):
+            cooldowns = {s: bars - 1 for s, bars in cooldowns.items() if bars - 1 > 0}
             prices = {s: float(f.loc[ts].close) for s, f in frames.items()}
             # Execute prior completed-candle decisions at this candle's open.
             for order in pending:
@@ -154,6 +156,11 @@ class Backtester:
                             order["components"],
                         )
                     )
+                    cooldowns[s] = (
+                        self.cfg.risk.loss_cooldown_bars
+                        if pnl < 0
+                        else self.cfg.risk.symbol_cooldown_bars
+                    ) + 1
                     events.append({**order, "event": "SELL", "time": ts, "price": px, "pnl": pnl})
             pending = []
             equity = portfolio.equity(prices)
@@ -193,6 +200,11 @@ class Backtester:
                             {},
                         )
                     )
+                    cooldowns[symbol] = (
+                        self.cfg.risk.loss_cooldown_bars
+                        if pnl < 0
+                        else self.cfg.risk.symbol_cooldown_bars
+                    ) + 1
                     events.append(
                         {
                             "event": "SELL",
@@ -235,6 +247,14 @@ class Backtester:
             exposure_available = max(
                 0, equity * self.cfg.risk.max_crypto_exposure - portfolio.exposure(prices)
             )
+            recent_returns = {
+                symbol: frame.loc[:ts].close.pct_change().tail(self.cfg.risk.correlation_lookback)
+                for symbol, frame in frames.items()
+            }
+            held_values = {
+                symbol: position.quantity * prices[symbol]
+                for symbol, position in portfolio.positions.items()
+            }
             candidates = []
             scores = {}
             for symbol, frame in frames.items():
@@ -285,14 +305,25 @@ class Backtester:
                 if (
                     symbol in portfolio.positions
                     or any(o["symbol"] == symbol for o in pending)
+                    or cooldowns.get(symbol, 0) > 0
+                    or len(portfolio.positions)
+                    + sum(o["side"] == "buy" for o in pending)
+                    >= self.cfg.risk.max_positions
                     or new_positions >= self.cfg.max_new_positions_per_cycle
                 ):
                     continue
                 row = frames[symbol].loc[ts]
                 score = scores[symbol]
                 if score.total >= threshold:
+                    correlation_available = correlated_exposure_available(
+                        symbol, recent_returns, held_values, equity, self.cfg.risk
+                    )
                     plan = size_position(
-                        equity, float(row.close), float(row.atr), exposure_available, self.cfg.risk
+                        equity,
+                        float(row.close),
+                        float(row.atr),
+                        min(exposure_available, correlation_available),
+                        self.cfg.risk,
                     )
                     if plan.quantity > 0:
                         pending.append(

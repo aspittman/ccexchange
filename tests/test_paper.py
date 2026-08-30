@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from ccexchange.execution import AccountSnapshot, FilledOrder
+from ccexchange.execution import AccountSnapshot, FilledOrder, OrderUpdate
 from ccexchange.paper import PaperRecorder
 
 
@@ -35,6 +35,22 @@ def test_paper_recorder_deduplicates_fills_and_reports_round_trip(tmp_path):
     ]
     recorder.record_fills(fills)
     recorder.record_fills(fills)
+    recorder.record_order_updates(
+        [
+            OrderUpdate(
+                "buy-1", "ccexchange-buy", "BTC/USD", "buy", "filled", 1, 1,
+                "2025-01-01T00:00:00+00:00", "2025-01-01T00:00:02+00:00",
+            ),
+            OrderUpdate(
+                "rejected-1", "ccexchange-rejected", "ETH/USD", "buy", "rejected", 1, 0,
+                "2025-01-01T00:00:00+00:00", "2025-01-01T00:00:01+00:00",
+            ),
+            OrderUpdate(
+                "partial-1", "ccexchange-partial", "ETH/USD", "buy", "canceled", 2, 1,
+                "2025-01-01T00:00:00+00:00", "2025-01-01T00:00:03+00:00",
+            ),
+        ]
+    )
     experiment_id = recorder.register_experiment({"timeframe": "1Day", "adx": 14})
     recorder.record_order(
         {
@@ -70,3 +86,6 @@ def test_paper_recorder_deduplicates_fills_and_reports_round_trip(tmp_path):
     assert report["round_trips"][0]["pnl"] == 10
     assert report["technique_analysis"]["sample_size"] == 1
     assert report["technique_analysis"]["groups"]
+    assert report["metrics"]["rejected_orders"] == 1
+    assert report["metrics"]["canceled_orders"] == 1
+    assert report["metrics"]["partially_filled_orders"] == 1

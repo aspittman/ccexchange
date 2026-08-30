@@ -2,7 +2,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from ccexchange.execution import AlpacaBroker, DryRunBroker, OrderIntent
+from ccexchange.execution import (
+    AlpacaBroker,
+    DryRunBroker,
+    OrderIntent,
+    deterministic_client_order_id,
+)
+
+
+def test_client_order_id_is_stable_and_decision_specific():
+    first = deterministic_client_order_id("2025-01-01", "BTC/USD", "buy")
+    assert first == deterministic_client_order_id("2025-01-01", "BTC/USD", "buy")
+    assert first != deterministic_client_order_id("2025-01-02", "BTC/USD", "buy")
 
 
 def test_dry_run_broker_never_reaches_alpaca():

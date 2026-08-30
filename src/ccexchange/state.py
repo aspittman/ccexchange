@@ -30,6 +30,7 @@ class BotState:
     equity_day: str = ""
     suspended_until: str = ""
     pending_orders: dict[str, str] = field(default_factory=dict)
+    cooldowns: dict[str, int] = field(default_factory=dict)
 
 
 class StateStore:

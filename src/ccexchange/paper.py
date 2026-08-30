@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .execution import AccountSnapshot, FilledOrder
+from .execution import AccountSnapshot, FilledOrder, OrderUpdate
 
 
 class PaperRecorder:
@@ -64,6 +64,16 @@ class PaperRecorder:
             "order_id", keep="last"
         ).sort_values("filled_at").to_csv(path, index=False)
 
+    def record_order_updates(self, updates: list[OrderUpdate]) -> None:
+        if not updates:
+            return
+        path = self.root / "order_updates.csv"
+        incoming = pd.DataFrame([asdict(update) for update in updates])
+        existing = pd.read_csv(path) if path.exists() else pd.DataFrame()
+        pd.concat([existing, incoming], ignore_index=True).drop_duplicates(
+            "order_id", keep="last"
+        ).to_csv(path, index=False)
+
     def register_experiment(self, config: dict) -> str:
         canonical = json.dumps(config, sort_keys=True, separators=(",", ":"))
         experiment_id = hashlib.sha256(canonical.encode()).hexdigest()[:12]
@@ -109,6 +119,12 @@ class PaperRecorder:
             "turnover": 0.0,
             "time_invested": 0.0,
             "time_in_cash": 1.0,
+            "fill_rate": 0.0,
+            "average_slippage_bps": 0.0,
+            "average_fill_latency_seconds": 0.0,
+            "rejected_orders": 0,
+            "canceled_orders": 0,
+            "partially_filled_orders": 0,
         }
         if equity_path.exists():
             equity = pd.read_csv(equity_path, parse_dates=["timestamp"]).sort_values("timestamp")
@@ -149,6 +165,7 @@ class PaperRecorder:
                 (fill_frame.quantity * fill_frame.price).abs().sum() / starting_equity
             )
         metrics["number_of_round_trips"] = len(round_trips)
+        metrics.update(self._execution_quality(fill_frame))
         if round_trips:
             pnls = [trade["pnl"] for trade in round_trips]
             wins, losses = [p for p in pnls if p > 0], [p for p in pnls if p < 0]
@@ -168,6 +185,56 @@ class PaperRecorder:
         (self.root / "paper_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         pd.DataFrame(round_trips).to_csv(self.root / "round_trips.csv", index=False)
         return report
+
+    def _execution_quality(self, fills: pd.DataFrame) -> dict[str, float]:
+        orders_path = self.root / "orders.csv"
+        empty = {
+            "fill_rate": 0.0,
+            "average_slippage_bps": 0.0,
+            "average_fill_latency_seconds": 0.0,
+            "rejected_orders": 0,
+            "canceled_orders": 0,
+            "partially_filled_orders": 0,
+        }
+        if not orders_path.exists():
+            return empty
+        orders = pd.read_csv(orders_path)
+        if orders.empty:
+            return empty
+        filled_ids = set(fills.order_id.astype(str)) if not fills.empty else set()
+        result = {
+            **empty,
+            "fill_rate": len(set(orders.order_id.astype(str)) & filled_ids) / len(orders),
+        }
+        updates_path = self.root / "order_updates.csv"
+        if updates_path.exists():
+            updates = pd.read_csv(updates_path)
+            statuses = updates.status.astype(str).str.lower()
+            result["rejected_orders"] = int(statuses.eq("rejected").sum())
+            result["canceled_orders"] = int(
+                statuses.isin({"canceled", "expired", "done_for_day"}).sum()
+            )
+            requested = updates.requested_quantity.astype(float)
+            filled = updates.filled_quantity.astype(float)
+            result["partially_filled_orders"] = int(
+                ((filled > 0) & (filled < requested)).sum()
+            )
+        required = {"order_id", "signal_price", "submitted_at"}
+        if fills.empty or not required.issubset(orders.columns):
+            return result
+        joined = orders.merge(fills, on="order_id", suffixes=("_order", "_fill"))
+        joined = joined.dropna(subset=["signal_price", "price", "submitted_at", "filled_at"])
+        if joined.empty:
+            return result
+        direction = joined["side_order"].map({"buy": 1.0, "sell": -1.0})
+        slippage = direction * (joined.price.astype(float) / joined.signal_price.astype(float) - 1)
+        latency = (
+            pd.to_datetime(joined.filled_at, utc=True)
+            - pd.to_datetime(joined.submitted_at, utc=True)
+        ).dt.total_seconds()
+        result["average_slippage_bps"] = float(slippage.mean() * 10_000)
+        result["average_fill_latency_seconds"] = float(latency.mean())
+        return result
 
     @staticmethod
     def _round_trips(path: Path) -> list[dict]:
