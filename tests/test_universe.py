@@ -2,9 +2,19 @@ from ccexchange.config import load_config
 from ccexchange.universe import STARTING_UNIVERSE, RankedCandidate, rank_candidates
 
 
-def test_starting_universe_is_only_btc_and_eth():
+def test_starting_universe_matches_default_allowlist():
     cfg = load_config("config/default.yaml")
-    assert tuple(cfg.symbols) == STARTING_UNIVERSE == ("BTC/USD", "ETH/USD")
+    assert tuple(cfg.symbols) == STARTING_UNIVERSE
+    assert STARTING_UNIVERSE == (
+        "BTC/USD",
+        "ETH/USD",
+        "SOL/USD",
+        "XRP/USD",
+        "LINK/USD",
+        "AVAX/USD",
+        "DOGE/USD",
+        "ADA/USD",
+    )
 
 
 def test_liquidity_gate_precedes_momentum_ranking():

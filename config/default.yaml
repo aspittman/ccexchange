@@ -1,11 +1,11 @@
-symbols: [BTC/USD, ETH/USD]
+symbols: [BTC/USD, ETH/USD, SOL/USD, XRP/USD, LINK/USD, AVAX/USD, DOGE/USD, ADA/USD]
 benchmark: BTC/USD
 max_new_positions_per_cycle: 1
-timeframe: 1Day
+timeframe: 4Hour
 lookback_bars: 400
 minimum_history_bars: 220
 liquidity:
-  minimum_dollar_volume: 100000
+  minimum_dollar_volume: 50000
 indicators:
   ema_fast: 20
   ema_slow: 50

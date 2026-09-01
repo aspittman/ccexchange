@@ -2,15 +2,16 @@
 
 `ccexchange` is an independent, long-only crypto momentum research bot. Its question is deliberately falsifiable: does MomentumMaster's trend-following philosophy transfer from stocks to a volatile, continuously traded crypto market? It does not import or modify MomentumMaster, and it does not assume the answer is yes.
 
-The initial allowlist is only `BTC/USD` and `ETH/USD`. New assets must be deliberately added to configuration and must pass a dollar-volume floor; there is no discovery or obscure-token scanner.
+The default allowlist contains `BTC/USD`, `ETH/USD`, `SOL/USD`, `XRP/USD`, `LINK/USD`,
+`AVAX/USD`, `DOGE/USD`, and `ADA/USD`. Assets must be deliberately added to configuration and pass
+a dollar-volume floor; there is no discovery or obscure-token scanner.
 
 The starting universe is defined in `src/ccexchange/universe.py` and mirrored in
 `config/default.yaml`. Each completed candle, the bot first rejects assets below
 `liquidity.minimum_dollar_volume`, then ranks the survivors by momentum score. By default it may
 open only the highest-ranked new opportunity per cycle (`max_new_positions_per_cycle: 1`). This
-means ETH can receive capital ahead of BTC when its confirmed momentum is stronger. Future assets
-such as SOL or LINK must be deliberately added to the configured allowlist; a high score can never
-override the liquidity gate.
+means an eligible altcoin can receive capital ahead of BTC when its confirmed momentum is stronger.
+A high score can never override the liquidity gate.
 
 ## Safety first
 
@@ -103,7 +104,7 @@ parameter changes with walk-forward testing.
 Collected bars are directly reusable by the historical engine. For the default daily timeframe:
 
 ```bash
-ccexchange backtest --data paper_data/bars/1Day --output results/paper-period-replay.json
+ccexchange backtest --data paper_data/bars/4Hour --output results/paper-period-replay.json
 ```
 
 Launcher activity is written to `logs/launcher.log`; strategy, regime, score, and calculated-order events are written to `logs/events.jsonl`. The entire project already lives in this base directory—there is no second nested project folder. The `src/ccexchange` directory is only the importable Python package.

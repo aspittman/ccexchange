@@ -4,7 +4,16 @@ from dataclasses import dataclass
 
 # Deliberate allowlist: adding a symbol here or in config is an operator decision.
 # The bot never discovers or trades arbitrary tokens automatically.
-STARTING_UNIVERSE = ("BTC/USD", "ETH/USD")
+STARTING_UNIVERSE = (
+    "BTC/USD",
+    "ETH/USD",
+    "SOL/USD",
+    "XRP/USD",
+    "LINK/USD",
+    "AVAX/USD",
+    "DOGE/USD",
+    "ADA/USD",
+)
 
 
 @dataclass(frozen=True)

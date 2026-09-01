@@ -40,7 +40,13 @@ def test_alpaca_paper_environment_alias(monkeypatch):
 def test_strategy_config_rejects_stock_ticker(tmp_path):
     source = Path("config/default.yaml").read_text(encoding="utf-8")
     path = tmp_path / "stock-universe.yaml"
-    path.write_text(source.replace("[BTC/USD, ETH/USD]", "[BTC/USD, SPY]"), encoding="utf-8")
+    path.write_text(
+        source.replace(
+            "[BTC/USD, ETH/USD, SOL/USD, XRP/USD, LINK/USD, AVAX/USD, DOGE/USD, ADA/USD]",
+            "[BTC/USD, SPY]",
+        ),
+        encoding="utf-8",
+    )
 
     with pytest.raises(ValidationError, match="BASE/USD"):
         load_config(path)
