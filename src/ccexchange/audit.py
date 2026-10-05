@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -10,7 +11,10 @@ class AuditLog:
         self.logger = logging.getLogger("ccexchange")
 
     def write(self, event: str, **details):
-        record = {"event": event, **details}
+        record = {"timestamp": datetime.now(timezone.utc).isoformat(), "event": event, **details}
         self.logger.info("%s %s", event, details)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, default=str, sort_keys=True) + "\n")
+        try:
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, default=str, sort_keys=True) + "\n")
+        except Exception:
+            self.logger.exception("Optional audit recording failed")

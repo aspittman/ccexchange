@@ -1,0 +1,34 @@
+[
+  {
+    "destination": "/home/stardustbreaker/MyBotz/ccexchange/src/ccexchange/runtime.py",
+    "backup": "/home/stardustbreaker/MyBotz/ccexchange/maintenance_backups/20261001T082135Z/0"
+  },
+  {
+    "destination": "/home/stardustbreaker/MyBotz/ccexchange/src/ccexchange/state.py",
+    "backup": "/home/stardustbreaker/MyBotz/ccexchange/maintenance_backups/20261001T082135Z/1"
+  },
+  {
+    "destination": "/home/stardustbreaker/MyBotz/ccexchange/src/ccexchange/execution.py",
+    "backup": "/home/stardustbreaker/MyBotz/ccexchange/maintenance_backups/20261001T082135Z/2"
+  },
+  {
+    "destination": "/home/stardustbreaker/MyBotz/ccexchange/src/ccexchange/audit.py",
+    "backup": "/home/stardustbreaker/MyBotz/ccexchange/maintenance_backups/20261001T082135Z/3"
+  },
+  {
+    "destination": "/home/stardustbreaker/MyBotz/ccexchange/src/ccexchange/protection.py",
+    "backup": null
+  },
+  {
+    "destination": "/home/stardustbreaker/MyBotz/ccexchange/tests/test_protection.py",
+    "backup": null
+  },
+  {
+    "destination": "/home/stardustbreaker/MyBotz/market_bot_scheduler.py",
+    "backup": "/home/stardustbreaker/MyBotz/ccexchange/maintenance_backups/20261001T082135Z/6"
+  },
+  {
+    "destination": "/home/stardustbreaker/.config/systemd/user/ccexchange.service",
+    "backup": null
+  }
+]

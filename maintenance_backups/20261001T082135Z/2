@@ -73,12 +73,6 @@ class Broker(ABC):
     def order_updates(self, symbols: list[str] | None = None) -> list[OrderUpdate]:
         return []
 
-    def quote(self, symbol: str):
-        raise NotImplementedError("Timestamped quote required for protection")
-
-    def lookup_order(self, client_id: str):
-        raise NotImplementedError("Broker order lookup required for recovery")
-
 
 class DryRunBroker(Broker):
     def __init__(self, equity: float = 100_000):
@@ -101,47 +95,9 @@ class AlpacaBroker(Broker):
             raise ValueError("AlpacaBroker cannot be constructed in dry-run mode")
         from ccexchange.bot_ownership import TradingClient
 
-        self.settings = settings
         self.client = TradingClient(
             settings.alpaca_api_key, settings.alpaca_secret_key, paper=settings.paper_trading
         )
-        # The installed alpaca-py transport otherwise has no request deadline.
-        # Never automatically replay an ambiguous POST; protection reconciles by client ID.
-        raw_client = self.client._client
-        request = raw_client._session.request
-        def bounded_request(*args, **kwargs):
-            kwargs['timeout'] = (3, 5)
-            return request(*args, **kwargs)
-        raw_client._session.request = bounded_request
-        raw_client._retry = 0
-
-    def quote(self, symbol: str):
-        import json
-        import urllib.request
-        import urllib.parse
-        _require_crypto_pair(symbol)
-        request = urllib.request.Request(
-            "https://data.alpaca.markets/v1beta3/crypto/us/latest/quotes?" + urllib.parse.urlencode({'symbols': symbol}),
-            headers={'APCA-API-KEY-ID': self.settings.alpaca_api_key,
-                     'APCA-API-SECRET-KEY': self.settings.alpaca_secret_key})
-        with urllib.request.urlopen(request, timeout=5) as response:
-            raw = response.read(1048577)
-        if len(raw) > 1048576:
-            raise ValueError("Oversize quote response")
-        quote = json.loads(raw)['quotes'][symbol]
-        return {'price': float(quote['bp']), 'ask': float(quote['ap']), 'timestamp': quote['t'],
-                'ask_size': quote.get('as'), 'bid_size': quote.get('bs')}
-
-    def lookup_order(self, client_id: str):
-        from alpaca.common.exceptions import APIError
-        try:
-            order = self.client.get_order_by_client_id(client_id)
-        except APIError as exc:
-            if exc.status_code == 404:
-                return None
-            raise
-        return {'id': str(order.id), 'status': str(getattr(order.status, 'value', order.status)),
-                'filled_qty': float(order.filled_qty or 0)}
 
     def account(self) -> AccountSnapshot:
         account = self.client.get_account()

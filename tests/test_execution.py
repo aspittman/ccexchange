@@ -7,6 +7,7 @@ from ccexchange.execution import (
     DryRunBroker,
     OrderIntent,
     deterministic_client_order_id,
+    floor_quantity,
 )
 
 
@@ -14,6 +15,28 @@ def test_client_order_id_is_stable_and_decision_specific():
     first = deterministic_client_order_id("2025-01-01", "BTC/USD", "buy")
     assert first == deterministic_client_order_id("2025-01-01", "BTC/USD", "buy")
     assert first != deterministic_client_order_id("2025-01-02", "BTC/USD", "buy")
+
+
+def test_quantity_is_floored_instead_of_rounded_above_available_balance():
+    assert floor_quantity(0.191288599, "0.00000001") == 0.19128859
+
+
+def test_alpaca_sell_uses_asset_increment_without_rounding_up():
+    broker = object.__new__(AlpacaBroker)
+    submitted = []
+    broker.client = SimpleNamespace(
+        get_asset=lambda _symbol: SimpleNamespace(
+            asset_class="crypto",
+            tradable=True,
+            min_trade_increment="0.000000001",
+            min_order_size="0.000000001",
+        ),
+        submit_order=lambda **kwargs: submitted.append(kwargs) or {"id": "sell-1"},
+    )
+
+    broker.submit(OrderIntent("BTC/USD", "sell", 0.191288599, "test"))
+
+    assert submitted[0]["order_data"].qty == 0.191288599
 
 
 def test_dry_run_broker_never_reaches_alpaca():

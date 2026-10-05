@@ -84,12 +84,7 @@ class Backtest(BaseModel):
 
 
 class Liquidity(BaseModel):
-    minimum_dollar_volume: float = Field(default=1_000_000, gt=0)
-    paper_quote_liquidity: bool = False
-    max_entry_spread: float = Field(default=0.005, gt=0, le=0.01)
-    max_quote_age_seconds: float = Field(default=30, gt=0, le=60)
-    max_ask_size_fraction: float = Field(default=0.10, gt=0, le=0.10)
-    minimum_entry_notional: float = Field(default=5, ge=1)
+    minimum_dollar_volume: float = 1_000_000
 
 
 class StrategyConfig(BaseModel):

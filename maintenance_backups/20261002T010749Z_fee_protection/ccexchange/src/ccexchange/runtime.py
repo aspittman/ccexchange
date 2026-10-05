@@ -155,9 +155,6 @@ def run_cycle(
     now: datetime | None = None,
 ) -> None:
     cfg = load_config(settings.config_path)
-    from .liquidity import entry_liquidity
-    # This experiment cannot silently relax the live-trading volume gate.
-    quote_mode = cfg.liquidity.paper_quote_liquidity and settings.paper_trading and not settings.live_trading
     now = now or datetime.now(timezone.utc)
     hours = {"1Day": 24, "12Hour": 12, "4Hour": 4, "1Hour": 1}[cfg.timeframe]
     source = source or AlpacaCryptoData(settings.alpaca_api_key, settings.alpaca_secret_key)
@@ -230,10 +227,6 @@ def run_cycle(
 
         manage_positions(state, store, broker, cfg, audit, now, account, rows, regime, settings.dry_run, settings.paper_trading)
 
-        if getattr(getattr(broker,'client',None),'reconciliation_notes',{}):
-            audit.write('ENTRY_BLOCKED',reason='Crypto fee reconciliation pending; protection remains active')
-            store.save(state)
-            return
         if state.protection_issues:
             audit.write('ENTRY_BLOCKED',reason='Position protection requires attention',issues=state.protection_issues)
             store.save(state)
@@ -286,16 +279,6 @@ def run_cycle(
             scored = momentum_score(scored_row, cfg, relative, symbol == cfg.benchmark)
             threshold = required_entry_score(regime, cfg)
             liquid = bool(row.dollar_volume >= cfg.liquidity.minimum_dollar_volume)
-            liquidity_basis = 'alpaca_exchange_bar_volume'
-            if quote_mode:
-                liquid = False
-                liquidity_basis = 'fresh_quote_spread_and_displayed_size'
-                if scored.total >= threshold:
-                    try:
-                        entry_liquidity(broker.quote(symbol), datetime.now(timezone.utc), cfg.liquidity)
-                        liquid = True
-                    except Exception as exc:
-                        audit.write('ENTRY_LIQUIDITY_BLOCK', symbol=symbol, reason=str(exc))
             eligible = bool(liquid and scored.total >= threshold)
             details = {
                 "symbol": symbol,
@@ -308,7 +291,6 @@ def run_cycle(
                 "dollar_volume": float(row.dollar_volume),
                 "eligible": eligible,
                 "liquidity_eligible": liquid,
-                "liquidity_basis": liquidity_basis,
             }
             audit.write("SIGNAL", **details)
             if recorder:
@@ -325,7 +307,6 @@ def run_cycle(
                         "score_band": score_band,
                         "threshold": threshold,
                         "liquidity_eligible": liquid,
-                        "liquidity_basis": liquidity_basis,
                         "eligible": eligible,
                         "dollar_volume": float(row.dollar_volume),
                         "adx": float(row.adx),
@@ -363,7 +344,6 @@ def run_cycle(
             liquidity_rejected=[candidate.symbol for candidate in candidates if not candidate.eligible],
         )
         new_positions = 0
-        entry_cash_available = max(0.0, account.cash)
         for candidate in ranking:
             symbol = candidate.symbol
             frame = frames[symbol]
@@ -386,23 +366,13 @@ def run_cycle(
             correlation_available = correlated_exposure_available(
                 symbol, recent_returns, held_values, account.equity, cfg.risk
             )
-            entry_price = float(row.close)
-            entry_capacity = min(available, correlation_available)
-            if quote_mode:
-                try:
-                    # Refresh immediately before sizing, never reuse the ranking quote.
-                    quote = entry_liquidity(broker.quote(symbol), datetime.now(timezone.utc), cfg.liquidity)
-                    entry_price = quote.ask
-                    entry_capacity = min(entry_capacity, entry_cash_available, quote.max_notional)
-                    details = dict(details, quote_ask=quote.ask, quote_spread=quote.spread,
-                                   quote_size_notional_cap=quote.max_notional)
-                except Exception as exc:
-                    audit.write('ENTRY_LIQUIDITY_BLOCK', symbol=symbol, reason=str(exc))
-                    continue
-            plan = size_position(account.equity, entry_price, float(row.atr), entry_capacity, cfg.risk)
-            if quote_mode and plan.notional < cfg.liquidity.minimum_entry_notional:
-                audit.write('ENTRY_BLOCKED', symbol=symbol, reason='sized entry below minimum notional')
-                continue
+            plan = size_position(
+                account.equity,
+                float(row.close),
+                float(row.atr),
+                min(available, correlation_available),
+                cfg.risk,
+            )
             if plan.quantity <= 0:
                 audit.write("ENTRY_BLOCKED", symbol=symbol, reason="no exposure or risk capacity")
                 continue
@@ -419,7 +389,7 @@ def run_cycle(
             audit.write(
                 "BUY_SUBMITTED",
                 **details,
-                entry=entry_price,
+                entry=float(row.close),
                 atr=float(row.atr),
                 initial_stop=plan.initial_stop,
                 quantity=plan.quantity,
@@ -431,10 +401,10 @@ def run_cycle(
             if not settings.dry_run:
                 state.positions[symbol] = ManagedPosition(
                     symbol,
-                    entry_price,
+                    float(row.close),
                     plan.quantity,
                     plan.initial_stop,
-                    entry_price,
+                    float(row.close),
                     now.isoformat(),
                     scored.total,
                     regime.value,
@@ -449,7 +419,7 @@ def run_cycle(
                 state.positions[symbol].atr_as_of = now.isoformat()
                 store.save(state)
                 emit('ENTRY_DECISION',state.positions[symbol],now,order_id=submitted_order_id,
-                     decision='BUY',reason=intent.reason,market={'price':entry_price})
+                     decision='BUY',reason=intent.reason,market={'price':float(row.close)})
                 if recorder:
                     recorder.record_order(
                         {
@@ -472,7 +442,6 @@ def run_cycle(
                         }
                     )
             available -= plan.notional
-            entry_cash_available -= plan.notional
             new_positions += 1
         store.save(state)
 
@@ -536,22 +505,11 @@ def main() -> None:
                 LOGGER.exception('Entry/indicator cycle failed; protection loop continues')
             scan_stop.wait(interval)
     worker=None
-    # Restart a stalled broker/lock path independently of the protection thread.
-    # Durable order identities and instance locking make restart reconciliation safe.
-    progress = [time.monotonic()]
-    def watchdog():
-        import os
-        while not scan_stop.wait(15):
-            if time.monotonic()-progress[0] > 120:
-                os.write(2,b'Protection watchdog: no completed cycle for 120 seconds; restarting\n')
-                os._exit(1)
-    threading.Thread(target=watchdog,name='protection-watchdog',daemon=True).start()
     try:
         while not stopping:
             began=time.monotonic()
             try:
                 protect_cycle(settings,cfg,audit,broker,store)
-                progress[0] = time.monotonic()
                 if worker is None:
                     worker=threading.Thread(target=scan,name='entry-scanner',daemon=True)
                     worker.start()

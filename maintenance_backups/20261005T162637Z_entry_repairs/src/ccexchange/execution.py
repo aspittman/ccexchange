@@ -129,8 +129,7 @@ class AlpacaBroker(Broker):
         if len(raw) > 1048576:
             raise ValueError("Oversize quote response")
         quote = json.loads(raw)['quotes'][symbol]
-        return {'price': float(quote['bp']), 'ask': float(quote['ap']), 'timestamp': quote['t'],
-                'ask_size': quote.get('as'), 'bid_size': quote.get('bs')}
+        return {'price': float(quote['bp']), 'ask': float(quote['ap']), 'timestamp': quote['t']}
 
     def lookup_order(self, client_id: str):
         from alpaca.common.exceptions import APIError
